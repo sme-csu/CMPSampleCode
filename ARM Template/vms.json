@@ -1,0 +1,213 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "numberOfVirtualMachines": {
+            "type": "int",
+            "minValue": 1,
+            "maxValue": 200,
+            "defaultValue": 2,
+            "metadata": {
+                "description": "The number of virtualMachine to create."
+            }
+        },
+        "prefixOfResource": {
+            "type": "string",
+            "defaultValue": "g1-",
+            "maxLength": 4,
+            "metadata": {
+                "description": "The prefix of all resource name."
+            }
+        },
+        "virtualMachineName": {
+            "type": "string",
+            "defaultValue": "vm-batch-",
+            "metadata": {
+                "description": "Name for the Virtual Machine."
+            }
+        },
+        "virtualMachineSize": {
+            "type": "string",
+            "defaultValue": "Standard_B1ls",
+            "metadata": {
+                "description": "Size for the Virtual Machine. (Eg. Standard_B1ms,Standard_D2_v3,Standard_F2s_v2. Link:https://docs.microsoft.com/en-us/azure/virtual-machines/sizes)"
+            }
+        },
+        "adminUsername": {
+            "type": "string",
+            "defaultValue": "demouser",
+            "metadata": {
+                "description": "Username for the Virtual Machine."
+            }
+        },
+        "adminPassword": {
+            "type": "secureString",
+            "defaultValue": "demo!pass123$%^g",
+            "metadata": {
+                "description": "Password for the Virtual Machine."
+            }
+        }
+    },
+    "variables": {
+        "virtualNetworkName": "[concat(parameters('prefixOfResource'), parameters('virtualMachineName'), 'vnet')]",
+        "virtualNetworkId": "[resourceId(resourceGroup().name, 'Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+        "addressPrefix": "[concat('10.25.1.0/24')]",
+        "addressPrefixes": [
+            "[variables('addressPrefix')]"
+        ],
+        "subnetName": "default",
+        "subnetRef": "[concat(variables('virtualNetworkId'), '/subnets/', variables('subnetName'))]",
+        "subnets": [
+            {
+                "name": "[variables('subnetName')]",
+                "properties": {
+                    "addressPrefix": "[variables('addressPrefix')]"
+                }
+            }
+        ],
+        "publicIpAddressType": "Dynamic",
+        "publicIpAddressSku": "Basic",
+        "publicIpAddressName": "-publicIp",
+        "networkInterfaceName": "-nic",
+        "networkSecurityGroupName": "-nsg",
+        "networkSecurityGroupRules": [
+            {
+                "name": "SSH",
+                "properties": {
+                    "priority": 300,
+                    "protocol": "TCP",
+                    "access": "Allow",
+                    "direction": "Inbound",
+                    "sourceAddressPrefix": "*",
+                    "sourcePortRange": "*",
+                    "destinationAddressPrefix": "*",
+                    "destinationPortRange": "22"
+                }
+            }
+        ],
+        "osDiskType": "StandardSSD_LRS"
+    },
+    "resources": [
+        {
+            "name": "[variables('virtualNetworkName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2019-09-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": "[variables('addressPrefixes')]"
+                },
+                "subnets": "[variables('subnets')]"
+            }
+        },
+        {
+            "name": "[concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('publicIpAddressName'))]",
+            "type": "Microsoft.Network/publicIpAddresses",
+            "apiVersion": "2019-02-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "publicIpAllocationMethod": "[variables('publicIpAddressType')]"
+            },
+            "sku": {
+                "name": "[variables('publicIpAddressSku')]"
+            },
+            "copy": {
+                "name": "publicIpAddresscopy",
+                "count": "[parameters('numberOfVirtualMachines')]"
+            }
+        },
+        {
+            "name": "[concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('networkSecurityGroupName'))]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2019-02-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "securityRules": "[variables('networkSecurityGroupRules')]"
+            },
+            "copy": {
+                "name": "networkSecurityGroupcopy",
+                "count": "[parameters('numberOfVirtualMachines')]"
+            }
+        },
+        {
+            "name": "[concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('networkInterfaceName'))]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2018-10-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId(resourceGroup().name, 'Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+                "[resourceId(resourceGroup().name, 'Microsoft.Network/publicIpAddresses', concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('publicIpAddressName')))]",
+                "[resourceId(resourceGroup().name, 'Microsoft.Network/networkSecurityGroups/', concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('networkSecurityGroupName')))]"
+            ],
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "subnet": {
+                                "id": "[variables('subnetRef')]"
+                            },
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId(resourceGroup().name, 'Microsoft.Network/publicIpAddresses', concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('publicIpAddressName')))]"
+                            }
+                        }
+                    }
+                ],
+                "networkSecurityGroup": {
+                    "id": "[resourceId(resourceGroup().name, 'Microsoft.Network/networkSecurityGroups', concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('networkSecurityGroupName')))]"
+                }
+            },
+            "copy": {
+                "name": "networkInterfacecopy",
+                "count": "[parameters('numberOfVirtualMachines')]"
+            }
+        },
+        {
+            "name": "[concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1))]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2019-07-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId(resourceGroup().name, 'Microsoft.Network/networkInterfaces/', concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('networkInterfaceName')))]"
+            ],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('virtualMachineSize')]"
+                },
+                "storageProfile": {
+                    "osDisk": {
+                        "createOption": "fromImage",
+                        "managedDisk": {
+                            "storageAccountType": "[variables('osDiskType')]"
+                        },
+                        "name": "[concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), '-OsDisk')]",
+                        "diskSizeGB": 30
+                    },
+                    "imageReference": {
+                        "publisher": "Canonical",
+                        "offer": "UbuntuServer",
+                        "sku": "18.04-LTS",
+                        "version": "latest"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId(resourceGroup().name, 'Microsoft.Network/networkInterfaces', concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1), variables('networkInterfaceName')))]"
+                        }
+                    ]
+                },
+                "osProfile": {
+                    "computerName": "[concat(parameters('prefixOfResource'), parameters('virtualMachineName'), copyIndex(1))]",
+                    "adminUsername": "[parameters('adminUsername')]",
+                    "adminPassword": "[parameters('adminPassword')]"
+                }
+            },
+            "copy": {
+                "name": "virtualMachinecopy",
+                "count": "[parameters('numberOfVirtualMachines')]"
+            }
+        }
+    ]
+}
